@@ -1,117 +1,24 @@
-Here's a draft:
+Gossip Protocol — Distributed Failure Detector
+A peer-to-peer failure detection system built from scratch in Python, implementing the core mechanics of gossip protocols used in distributed databases like Cassandra and DynamoDB.
+What it does
 
----
+Each node maintains a local membership list — its belief about every other node in the network
+Nodes periodically gossip their membership list to a random neighbour over UDP
+Information spreads epidemically — a node learns about the entire network without ever connecting to it directly
+A watchdog thread on each node independently detects failures based on heartbeat staleness
 
-**Building a Gossip Protocol from Scratch — Part 1**
+How failure detection works
+Each membership list entry tracks a heartbeat counter and a last_updated timestamp. The timestamp is always set from the local clock — never trusted from the network. If a node's heartbeat stops increasing, the watchdog marks it SUSPECTED after T_suspect seconds and DEAD after T_fail seconds.
+Running it
+bashpython main.py
+Change N at the top of the file to run with any number of nodes. The network topology is generated automatically — a ring for guaranteed connectivity plus random extra edges for faster convergence.
+Key design decisions
 
-Distributed systems are fascinating because there's no single source of truth. No central server telling everyone what's happening. Just nodes, talking to their neighbours, piecing together a picture of the world from partial information.
+State is external — a node cannot declare itself alive or dead. That judgment belongs to its observers.
+Local clocks only — last_updated reflects when you observed a heartbeat change, not when it happened.
+UDP over TCP — gossip is fire and forget. No handshake, no guarantee, no overhead.
+Deep copy before send — gossip snapshots are isolated from the live membership list.
+Thread per responsibility — heartbeat, sender, receiver, and watchdog run independently per node.
 
-That's exactly what a gossip protocol does — and in this series, we're building one from scratch in Python.
-
----
-
-**What is a Gossip Protocol?**
-
-Think of how rumours spread in real life. You tell two friends, they each tell two friends, and within a few hours the whole office knows. Gossip protocols work the same way — each node periodically shares what it knows with a random neighbour, and information spreads epidemically across the network.
-
-Unlike centralised systems like Kafka where a broker coordinates everything, gossip protocols are fully peer-to-peer. Every node is equal. There's no single point of failure.
-
----
-
-**What we're building**
-
-A failure detector — the foundation of any gossip protocol. Each node tracks its neighbours' heartbeats and uses that to decide if they're alive or dead.
-
-We'll build it in four phases:
-
-1. Single node skeleton with heartbeat threading
-2. Nodes gossiping over UDP
-3. Failure detection — suspected and dead states
-4. Scaling to N nodes and observing epidemic spread
-
-This post covers Phase 1.
-
----
-
-**Modelling a Node**
-
-The first instinct is to model all nodes in a single global dictionary. But that's centralised thinking — in a real distributed system, nodes are separate machines with no shared memory. They only learn about each other by exchanging messages.
-
-So each node gets its own class instance with its own local state:
-
-```python
-class Node:
-    def __init__(self, node_id: int, nei: set):
-        self.heartbeat = 0
-        self.node_id = node_id
-        self.nei = {}
-        for ne in nei:
-            self.nei[ne] = {"heartbeat": 0, "last_updated": time.time()}
-```
-
-A few design decisions worth noting here. The `nei` parameter is a simple set of neighbour IDs — `{2, 4}` for example. Inside `__init__` we transform it into a structured membership list, where each entry tracks a heartbeat counter and a `last_updated` timestamp.
-
-The `last_updated` timestamp is crucial — and it's always set from the node's own local clock, never trusted from the network. When node 1 receives a gossip message saying node 2's heartbeat is 42, it records *when it locally observed that* — not when node 2 sent it.
-
-**One key insight: a node cannot declare its own state.** Whether a node is alive, suspected, or dead is a judgment made by its neighbours based on observed heartbeat changes. That's why there's no `state` field on the node itself — it belongs in each neighbour's membership list.
-
----
-
-**Heartbeat Threading**
-
-Each node runs its own background thread that increments its heartbeat counter every second, independent of all other nodes:
-
-```python
-def update_heartbeat(node):
-    while True:
-        node.update_heartbeat()
-        time.sleep(1)
-
-threads = []
-for node in nodes:
-    t = threading.Thread(target=update_heartbeat, args=(node,), daemon=True)
-    t.start()
-    threads.append(t)
-```
-
-Two things worth noting. First, `daemon=True` — without this, Python keeps the program alive as long as any thread is running. Since these are infinite loops, the program would hang forever on exit. Daemon threads are killed automatically when the main thread exits.
-
-Second, we pass the function reference to `target`, not the result of calling it. `target=update_heartbeat` is correct. `target=update_heartbeat(node)` would call the function immediately on the main thread and hang forever.
-
-The main thread stays alive with a simple loop that prints a snapshot every 2 seconds:
-
-```python
-try:
-    while True:
-        for node in nodes:
-            print(f"node {node.node_id}: {node.heartbeat}")
-        print("---")
-        time.sleep(2)
-except KeyboardInterrupt:
-    print("Shutting down")
-```
-
----
-
-**What we have so far**
-
-Four independent nodes, each ticking away on their own thread, completely unaware of each other. No networking yet — just the data structure and threading model in place.
-
-Part 2 — Nodes Actually Talking
-
-Why UDP — one line explanation, then show the socket setup in __init__
-The merge function — show the three rules as code, explain each branch
-The reference bug — show send_dict = self.nei vs copy.deepcopy(self.nei) and explain why it matters
-The clock insight — show last_updated = time.time() in merge, explain why it's your clock not the sender's
-Sender — show send_gossip with the JSON serialization, explain sendto
-Receiver — show receive_gossip, explain the integer key fix and why JSON does that
-Show the output — membership lists spreading across nodes, different values at same moment
-
-
-Part 3 — Failure Detection
-
-Show status field added to membership list initialization
-Show the watchdog method — two if statements, explain why not if/elif (a node can cross both thresholds between watchdog ticks)
-Show the alive flag pattern — killing a node cleanly
-Show the output progression — heartbeat freezes at 5, SUSPECTED appears, then DEAD
-Point out the asymmetry in detection time — nodes closer to the dead node detect it later, show this in the output
+Concepts demonstrated
+Eventual consistency, epidemic information propagation, decentralised failure detection, concurrent UDP networking, thread safety with locks.

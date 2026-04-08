@@ -3,13 +3,9 @@ import socket
 import random
 import json
 import copy
-NODE_PORTS = {
-    1:5001,
-    2:5002,
-    3:5003,
-    4:5004
-} 
-
+N = 6
+NODE_PORTS = {i: 5000 + i for i in range(1, N+1)}
+kill_time = None
 class Node:
     host ='127.0.0.1'
     def __init__(self,node_id:int, nei:set): 
@@ -34,8 +30,11 @@ class Node:
         while True:
             with self.lock:
                 for ne in list(self.nei.keys()):
+                    old_status = self.nei[ne]["status"]
                     if time.time() - self.nei[ne]["last_updated"] > T_suspect:
                         self.nei[ne]["status"] = "SUSPECTED"
+                    if kill_time is not None and old_status == "ALIVE" and self.nei[ne]["status"] == "SUSPECTED":
+                        print(f"node {ne} SUSPECTED by {self.node_id} at {time.time() - kill_time:.2f}s")
                     if time.time() - self.nei[ne]["last_updated"] > T_fail:
                         self.nei[ne]["status"] = "DEAD"
             time.sleep(5)
@@ -65,26 +64,34 @@ class Node:
             time.sleep(2)
     def receive_gossip(self):
         while True:
-            data,client_address = self.recv.recvfrom(1024)
+            data,client_address = self.recv.recvfrom(65535)
             data = {int(k): v for k, v in json.loads(data.decode()).items()}
             self.merge_list(data)
         
 
 
-node_1 = Node(1,{2,4})
-node_2 = Node(2,{1,3})
-node_3 = Node(3,{2,4})
-node_4 = Node(4,{3,1,2})
 
-Nodes = [node_1,node_2,node_3,node_4]
 
+
+Nodes = []
+for i in range(1,N+1):
+    l = (i-2)%N +1
+    r = i% N+1
+    Nodes.append(Node(i,{l,r}))
+
+for node in Nodes:
+    i = random.randint(1,N)
+    while i in node.nei or node.node_id == i:
+        i = random.randint(1,N)
+    node.nei[i] = {"heartbeat":0,"last_updated":time.time(),"status":"ALIVE"}
+    Nodes[i-1].nei[node.node_id] = {"heartbeat":0,"last_updated":time.time(),"status":"ALIVE"}
+    
 
 def update_heartbeat(node):
     while True:
         node.update_heartbeat()
         time.sleep(1)
         
-
 # t1= threading.Thread(target=update_heartbeat,args=(node_1,),daemon=True)
 # t2= threading.Thread(target=update_heartbeat,args=(node_2,),daemon=True)
 # t3= threading.Thread(target=update_heartbeat,args=(node_3,),daemon=True)
@@ -124,15 +131,17 @@ for node in Nodes:
 
 
 #connection is then done using
-time.sleep(5)
-node_4.alive=False
+time.sleep(10)
+kill_time = time.time()
+Nodes[2].alive = False
 try:
     while True:
         for node in Nodes:
-            print(node.nei)
-        time.sleep(2)  
+            for ne, info in node.nei.items():
+                if info["status"] != "ALIVE":
+                    print(f"node {ne} is {info['status']} according to node {node.node_id}")
         print("---")
-        pass
+        time.sleep(2)
 except KeyboardInterrupt:
     print("Shutting down")
 
