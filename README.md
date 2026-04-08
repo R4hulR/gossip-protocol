@@ -1,6 +1,4 @@
-Here's a draft:
-
----
+This is a draft for 4 nodes which i scaled upto n nodes in main branch
 
 **Building a Gossip Protocol from Scratch — Part 1**
 
