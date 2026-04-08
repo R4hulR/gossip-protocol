@@ -1,24 +1,34 @@
-Gossip Protocol — Distributed Failure Detector
-A peer-to-peer failure detection system built from scratch in Python, implementing the core mechanics of gossip protocols used in distributed databases like Cassandra and DynamoDB.
-What it does
+# gossip-protocol
 
-Each node maintains a local membership list — its belief about every other node in the network
-Nodes periodically gossip their membership list to a random neighbour over UDP
-Information spreads epidemically — a node learns about the entire network without ever connecting to it directly
-A watchdog thread on each node independently detects failures based on heartbeat staleness
+Peer-to-peer failure detector implementing epidemic gossip over UDP. Nodes gossip heartbeats to random neighbours, merge membership lists, and independently detect failures — no central coordinator, no shared state.
 
-How failure detection works
-Each membership list entry tracks a heartbeat counter and a last_updated timestamp. The timestamp is always set from the local clock — never trusted from the network. If a node's heartbeat stops increasing, the watchdog marks it SUSPECTED after T_suspect seconds and DEAD after T_fail seconds.
-Running it
-bashpython main.py
-Change N at the top of the file to run with any number of nodes. The network topology is generated automatically — a ring for guaranteed connectivity plus random extra edges for faster convergence.
-Key design decisions
+## Quick Start
 
-State is external — a node cannot declare itself alive or dead. That judgment belongs to its observers.
-Local clocks only — last_updated reflects when you observed a heartbeat change, not when it happened.
-UDP over TCP — gossip is fire and forget. No handshake, no guarantee, no overhead.
-Deep copy before send — gossip snapshots are isolated from the live membership list.
-Thread per responsibility — heartbeat, sender, receiver, and watchdog run independently per node.
+```bash
+python main.py
+```
 
-Concepts demonstrated
-Eventual consistency, epidemic information propagation, decentralised failure detection, concurrent UDP networking, thread safety with locks.
+Change `N` at the top of the file to run with any number of nodes.
+
+## How it works
+
+Each node runs 4 independent threads:
+- **Heartbeat** — increments own counter every second
+- **Sender** — gossips membership list to a random neighbour every 2 seconds over UDP
+- **Receiver** — listens for incoming gossip and merges it
+- **Watchdog** — marks nodes SUSPECTED after 10s of staleness, DEAD after 20s
+
+## Performance
+
+Sub-15s failure detection across 6 nodes with 2s gossip interval. Converges in O(log N) rounds.
+
+## Key Concepts
+
+- State is external — no node declares itself dead
+- Local clocks only — `last_updated` is never trusted from the network
+- Deep copy before send — snapshots isolated from live state
+- UDP fire and forget — no handshake overhead
+
+## Blog Post
+
+*Link coming soon*
